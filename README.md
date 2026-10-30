@@ -9,7 +9,7 @@
 1. 前往 [最新发布版本](https://github.com/xiaoze123kk/xiaoya-course-helper/releases/latest)。
 2. 在 **Assets** 中下载 `xiaoya-course-helper-v版本号.zip`，解压到一个固定目录。
 3. 在 Chrome 地址栏输入 `chrome://extensions/`，开启右上角的“开发者模式”。
-4. 点击“加载已解压的扩展程序”，选择解压后的 **`extension` 文件夹**。
+4. 点击“加载未打包的扩展程序”，选择解压后的 **`extension` 文件夹**。
 5. 将“小雅刷课助手”固定到工具栏，方便查看状态和停止任务。
 
 也可以下载或克隆源码，再选择仓库中的 `extension` 文件夹加载。不要选择 ZIP 文件或仓库根目录。
