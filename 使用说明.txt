@@ -1,11 +1,14 @@
-小雅刷课助手 0.2.1（Chrome 120 及以上）
+小雅刷课助手 0.3.0（Chrome / Microsoft Edge 120 及以上）
 
 安装
-1. 在 Chrome 地址栏打开 chrome://extensions/。
+1. Chrome 打开 chrome://extensions/；Microsoft Edge 打开 edge://extensions/。
 2. 打开右上角“开发者模式”。
 3. 点击“加载未打包的扩展程序”。
 4. 选择本目录中的 extension 文件夹，勿选择整个项目目录或 ZIP。
 5. 刷新已登录的小雅页面。
+
+Chrome 与 Edge 复用同一份 extension 代码，功能一致。使用 Edge 时在 Edge 内单独登录小雅。
+Edge 安装包附有安装-edge.txt；真实 Edge 平台流程尚未完成验证。
 
 使用
 1. 在任意网页打开插件，点击“获取待完成任务”，自动前往小雅“我的课程”首页。

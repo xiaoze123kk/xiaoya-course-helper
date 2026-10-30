@@ -1,18 +1,20 @@
 # 小雅刷课助手
 
-适用于武汉理工大学小雅平台的 Chrome 扩展。支持待办获取、视频倍速、按课件要求等待，以及任务完成后自动继续。
+适用于武汉理工大学小雅平台的 Chrome / Microsoft Edge 扩展。两个浏览器复用同一套源码，支持待办获取、视频倍速、按课件要求等待，以及任务完成后自动继续。
 
-适用地址：<https://whut.ai-augmented.com/app/jx-web/mycourse>。需要 **Chrome 120 或以上版本**。
+适用地址：<https://whut.ai-augmented.com/app/jx-web/mycourse>。需要 **Chrome 或 Microsoft Edge 120 及以上版本**。
 
 ## 下载与安装
 
 1. 前往 [最新发布版本](https://github.com/xiaoze123kk/xiaoya-course-helper/releases/latest)。
-2. 在 **Assets** 中下载 `xiaoya-course-helper-v版本号.zip`，解压到一个固定目录。
-3. 在 Chrome 地址栏输入 `chrome://extensions/`，开启右上角的“开发者模式”。
+2. 在 **Assets** 中选择对应浏览器的安装包，解压到一个固定目录：Chrome 为 `xiaoya-course-helper-v版本号.zip`，Edge 为 `xiaoya-course-helper-edge-v版本号.zip`。
+3. 打开浏览器的扩展管理页，开启“开发者模式”：Chrome 输入 `chrome://extensions/`，Edge 输入 `edge://extensions/`。
 4. 点击“加载未打包的扩展程序”，选择解压后的 **`extension` 文件夹**。
 5. 将“小雅刷课助手”固定到工具栏，方便查看状态和停止任务。
 
 也可以下载或克隆源码，再选择仓库中的 `extension` 文件夹加载。不要选择 ZIP 文件或仓库根目录。
+
+Edge 和 Chrome 共用相同的 Manifest V3、功能代码与权限，不需要安装两个扩展版本。浏览器间的登录和设置独立，在 Edge 使用时需要在 Edge 内登录小雅。当前未完成真实 Edge 平台流程验证。
 
 ## 使用步骤
 
@@ -53,15 +55,15 @@
 
 ## 使用边界
 
-运行期间请保持 Chrome 打开、电脑唤醒，勿刷新、关闭或手动导航正在执行任务的小雅标签页。平台提示刷新或离开任务页面可能重置连续计时。
+运行期间请保持浏览器打开、电脑唤醒，勿刷新、关闭或手动导航正在执行任务的小雅标签页。平台提示刷新或离开任务页面可能重置连续计时。
 
 后台模式会处理页面可见性和焦点检测，并在运行期间关闭该标签页的自动丢弃；停止后恢复原设置。它不能阻止系统休眠、浏览器崩溃或服务端限制。**真实平台的完整课程流程和后台有效计时尚未完成端到端验证，不能保证所有课程均有效。**
 
-运行状态保存在当前浏览器会话中，退出 Chrome 后需重新启动。每个浏览器配置文件同时运行一个队列。
+运行状态保存在当前浏览器会话中，退出浏览器后需重新启动。每个浏览器配置文件同时运行一个队列。
 
 ## 更新
 
-下载新版安装包，解压并替换原安装目录中的文件，然后在 `chrome://extensions/` 找到“小雅刷课助手”，点击“重新加载”。刷新小雅页面后再启动队列。
+下载对应浏览器的新版安装包，解压并替换原安装目录中的文件，然后在 Chrome 的 `chrome://extensions/` 或 Edge 的 `edge://extensions/` 找到“小雅刷课助手”，点击“重新加载”。刷新小雅页面后再启动队列。
 
 源码仓库不保存历史安装 ZIP；安装包统一在 [Releases](https://github.com/xiaoze123kk/xiaoya-course-helper/releases) 中分发。
 
@@ -82,3 +84,12 @@ node --test tests/extension.test.cjs tests/worker.test.cjs
 ```
 
 测试覆盖任务筛选、自动下一项、平台时长解析、后台模式、页面连接恢复、登录后继续获取等逻辑。模拟测试通过不等同于真实平台验证。
+
+生成安装包（PowerShell）：
+
+```powershell
+./scripts/package.ps1 -Browser edge
+./scripts/package.ps1 -Browser all
+```
+
+输出在 `dist/`，该目录和 ZIP 均不提交 Git。打包只复制同一份 `extension/`，分别附加浏览器安装指引，不维护重复业务代码。

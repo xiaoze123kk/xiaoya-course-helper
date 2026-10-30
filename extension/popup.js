@@ -39,7 +39,7 @@ async function command(type) {
     await chrome.storage.local.set({ options });
     const result = await chrome.runtime.sendMessage({ type, tabId: tab?.id, options });
     if (result?.error) throw new Error(result.error);
-    if (!result?.ok) throw new Error('后台未确认请求，请到扩展管理页重新加载“小雅学习助手”后再试。');
+    if (!result?.ok) throw new Error('后台未确认请求，请到浏览器扩展管理页重新加载“小雅刷课助手”后再试。');
     await render();
   } catch (error) { $('status').textContent = error.message; }
   finally { $('start').disabled = false; $('scan').disabled = false; }
