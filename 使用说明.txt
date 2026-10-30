@@ -1,4 +1,4 @@
-小雅刷课助手 0.2.0（Chrome 120 及以上）
+小雅刷课助手 0.2.1（Chrome 120 及以上）
 
 安装
 1. 在 Chrome 地址栏打开 chrome://extensions/。

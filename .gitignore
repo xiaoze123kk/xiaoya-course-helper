@@ -1,0 +1,2 @@
+# 安装包通过 GitHub Releases 分发，不提交到源码仓库。
+*.zip
