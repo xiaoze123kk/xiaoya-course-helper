@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 
-function fixture({ done = false, ended = true, file = true, courseware = false, home = false, scanOnly = false, autoNext = true } = {}) {
+function fixture({ done = false, ended = true, file = true, courseware = false, home = false, scanOnly = false, autoNext = true, taskName, headingAttribute = true, taskHref } = {}) {
   let now = 100000;
   let interval;
   let listener;
@@ -13,7 +13,7 @@ function fixture({ done = false, ended = true, file = true, courseware = false, 
   let nextClicks = 0;
   let pauses = 0;
   let timingText = null;
-  const firstName = courseware ? 'first.pptx' : 'first.mp4';
+  const firstName = taskName || (courseware ? 'first.pptx' : 'first.mp4');
   const sent = [];
   const events = [];
   const assigned = [];
@@ -24,7 +24,7 @@ function fixture({ done = false, ended = true, file = true, courseware = false, 
   const homeCard = (name, watch) => ({
     textContent: `${name} 大学生劳动教育`, classList: { contains() { return watch; } },
     querySelector(selector) {
-      return selector === 'a.group-resource-link' ? { textContent: name, click() { homeClicks++; } } : { textContent: '大学生劳动教育' };
+      return selector === 'a.group-resource-link' ? { textContent: name, getAttribute() { return taskHref; }, click() { homeClicks++; } } : { textContent: '大学生劳动教育' };
     }
   });
   const homeCards = [homeCard(firstName, true), homeCard('章节测验', false), homeCard('讨论任务', false)];
@@ -35,10 +35,10 @@ function fixture({ done = false, ended = true, file = true, courseware = false, 
     pause() { pauses++; }, async play() {} };
   const complete = { textContent: '点我完成任务', click() { completedClicks++; } };
   const row = name => ({ querySelector() { return { textContent: name, click() { nextClicks++; }, dispatchEvent() {} }; }, querySelectorAll() { return []; } });
-  const document = { title: `${firstName} | 理工智课`, body: { innerText: '' },
+  const document = { title: `${firstName.replace(/\s+/g, ' ')} | 理工智课`, body: { innerText: '' },
     querySelector(selector) {
       if (selector === '[title="点击查看/刷新待完成学习任务"]') return { click() { homeOpened = true; } };
-      if (selector === 'h5.title') return { getAttribute() { return firstName; } };
+      if (selector === 'h5.title') return { textContent: firstName, getAttribute() { return headingAttribute ? firstName : null; } };
       if (selector === '.ta_icon_btn .xy_btn_task_finish') return done ? {} : null;
       if (selector === 'video') return courseware ? null : video;
       if (selector === '.ant-modal .finish_task_info' && timingText !== null) return {
@@ -56,7 +56,7 @@ function fixture({ done = false, ended = true, file = true, courseware = false, 
       if (selector === 'video') return [video];
       return [];
     } };
-  const context = vm.createContext({ document, location, window: { dispatchEvent(e) { events.push(e); } },
+  const context = vm.createContext({ document, location, URL, window: { dispatchEvent(e) { events.push(e); } },
     Date: class extends Date { static now() { return now; } },
     CustomEvent: class { constructor(type, data) { this.type = type; this.detail = data.detail; } },
     MouseEvent: class {},
@@ -216,4 +216,130 @@ test('manifest references only files included in the extension', () => {
     assert.ok(fs.existsSync(path.join(root, 'extension', name)), name);
   }
   assert.deepEqual(manifest.host_permissions, ['https://whut.ai-augmented.com/*']);
+});
+
+test('real PPT heading has no title attribute and preserves double spaces', async () => {
+  const f = fixture({ home: true, courseware: true, taskName: '7.2  艺术性劳动分类.pptx', headingAttribute: false });
+  await f.start(); await f.tick(); await f.tick(1000); await f.tick(1000); await f.tick(3000);
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick();
+  assert.equal(f.completedClicks, 1);
+  assert.equal(f.sent.at(-1).run.enabled, true);
+});
+test('document title fallback normalizes whitespace', async () => {
+  const f = fixture({ home: true, taskName: '7.2  艺术性劳动分类.mp4' });
+  await f.start(); await f.tick(); await f.tick(1000); await f.tick(1000); await f.tick(3000);
+  const query = f.document.querySelector;
+  f.document.querySelector = selector => selector === 'h5.title' ? null : query(selector);
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick();
+  assert.equal(f.completedClicks, 1);
+});
+test('different resource waits then stops without requesting completion', async () => {
+  const f = fixture({ home: true });
+  await f.start(); await f.tick(); await f.tick(1000); await f.tick(1000); await f.tick(3000);
+  f.document.title = 'wrong.mp4 | 理工智课';
+  const query = f.document.querySelector;
+  f.document.querySelector = selector => selector === 'h5.title' ? null : query(selector);
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick();
+  assert.equal(f.completedClicks, 0);
+  assert.equal(f.sent.at(-1).run.enabled, true);
+  await f.tick(15000);
+  assert.equal(f.sent.at(-1).run.enabled, false);
+  assert.match(f.sent.at(-1).run.status, /wrong.mp4/);
+  assert.equal(f.completedClicks, 0);
+});
+
+async function launchHome(f) {
+  await f.start(); await f.tick(); await f.tick(1000); await f.tick(1000); await f.tick(3000);
+}
+test('same filename at a different resource ID cannot be completed', async () => {
+  const f = fixture({ home: true, taskHref: '/app/jx-web/mycourse/another-course/resource/folder/expected' });
+  await launchHome(f);
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/wrong');
+  await f.tick(); await f.tick();
+  assert.equal(f.completedClicks, 0);
+  assert.equal(f.sent.at(-1).run.enabled, false);
+  assert.match(f.sent.at(-1).run.status, /资源地址/);
+});
+test('matching IDs work and a non-resource href falls back to name checks', async () => {
+  for (const taskHref of ['/app/jx-web/mycourse/another-course/resource/folder/file', '#', 'javascript:void(0)', 'https://example.com/other']) {
+    const f = fixture({ home: true, taskHref }); await launchHome(f);
+    f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+    await f.tick(); await f.tick();
+    assert.equal(f.completedClicks, 1, taskHref);
+  }
+});
+test('NBSP and zero-width characters do not produce a false mismatch', async () => {
+  const f = fixture({ home: true, taskName: '7.2\u00a0\u200b 艺术性劳动分类.mp4' }); await launchHome(f);
+  const query = f.document.querySelector;
+  f.document.querySelector = selector => selector === 'h5.title' ? null : query(selector);
+  f.document.title = '7.2 艺术性劳动分类.mp4 | 理工智课';
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick(); assert.equal(f.completedClicks, 1);
+});
+test('late resource heading recovers without restarting the queue', async () => {
+  const f = fixture({ home: true }); await launchHome(f);
+  const query = f.document.querySelector;
+  f.document.querySelector = selector => selector === 'h5.title' ? null : query(selector);
+  f.document.title = '加载中';
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick(); assert.equal(f.completedClicks, 0);
+  f.document.querySelector = query;
+  await f.tick(); assert.equal(f.completedClicks, 1);
+});
+test('missing home entry and player wait but eventually time out', async () => {
+  for (const home of [true, false]) {
+    const f = fixture({ home });
+    const query = f.document.querySelector;
+    f.document.querySelector = selector => selector === (home ? '[title="点击查看/刷新待完成学习任务"]' : 'video') ? null : query(selector);
+    await f.start(); await f.tick();
+    assert.equal(f.sent.at(-1).run.enabled, true);
+    await f.tick(30000);
+    assert.equal(f.sent.at(-1).run.enabled, false);
+    assert.match(f.sent.at(-1).run.status, /加载超时/);
+    assert.equal(f.completedClicks, 0);
+  }
+});
+
+test('long video heading uses full title attribute instead of truncated text', async () => {
+  const name = '7.1 艺术的起源 马克思主义艺术生产理论.mp4';
+  const f = fixture({ home: true, taskName: name }); await launchHome(f);
+  const query = f.document.querySelector;
+  f.document.querySelector = selector => selector === 'h5.title' ? {
+    textContent: '7.1 艺术的起源 马克思主义艺术生产理...', getAttribute() { return name; }
+  } : query(selector);
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick(); assert.equal(f.completedClicks, 1);
+});
+test('truncated headings without an attribute use full document title', async () => {
+  const f = fixture({ home: true }); await launchHome(f);
+  const query = f.document.querySelector;
+  f.document.querySelector = selector => selector === 'h5.title' ? {
+    textContent: 'fir...', getAttribute() { return null; }
+  } : query(selector);
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick(); assert.equal(f.completedClicks, 1);
+});
+test('selected directory row provides full name when other titles are truncated', async () => {
+  const f = fixture({ home: true }); await launchHome(f);
+  const query = f.document.querySelector;
+  f.document.querySelector = selector => selector === 'h5.title' ? {
+    textContent: 'fir...', getAttribute() { return null; }
+  } : selector === '.group-resource-node.node-selected .node-inner' ? { textContent: 'first.mp4' } : query(selector);
+  f.document.title = 'fir... | 理工智课';
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick(); assert.equal(f.completedClicks, 1);
+});
+test('truncated names alone never authorize completion by prefix', async () => {
+  const f = fixture({ home: true }); await launchHome(f);
+  const query = f.document.querySelector;
+  f.document.querySelector = selector => selector === 'h5.title' ? {
+    textContent: 'fir...', getAttribute() { return null; }
+  } : query(selector);
+  f.document.title = 'fir... | 理工智课';
+  f.navigate('/app/jx-web/mycourse/another-course/resource/folder/file');
+  await f.tick(); await f.tick(); await f.tick(20000);
+  assert.equal(f.completedClicks, 0); assert.equal(f.sent.at(-1).run.enabled, false);
 });

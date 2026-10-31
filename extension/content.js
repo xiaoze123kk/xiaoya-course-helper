@@ -23,6 +23,36 @@
     return match ? { course: match[1], folder: match[2], file: match[3] || null } : null;
   };
   const background = enabled => window.dispatchEvent(new CustomEvent('xiaoya-helper-background', { detail: enabled }));
+  const normalizeName = value => (value || '').normalize('NFC').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ').trim();
+  // Use platform IDs when a task exposes a real resource link. Names alone
+  // cannot distinguish two resources with the same filename.
+  function resourceTarget(link) {
+    const href = link?.getAttribute?.('href');
+    if (!href) return null;
+    try {
+      const url = new URL(href, location.href);
+      if (url.origin !== location.origin) return null;
+      const match = url.pathname.match(/^\/app\/jx-web\/mycourse\/([^/]+)\/resource\/([^/]+)\/([^/]+)\/?$/);
+      return match ? { course: match[1], file: match[3] } : null;
+    } catch { return null; }
+  }
+  function waitForPage(now, text) {
+    if (now - arrived < 30000) { log(`等待页面加载：${text}`); return; }
+    stop(`页面加载超时：${text}，已暂停，请检查页面或网络后重新开始。`);
+  }
+  function resourceName() {
+    const heading = document.querySelector('h5.title');
+    const candidates = [
+      heading?.getAttribute('title'),
+      heading?.textContent,
+      document.querySelector('.group-resource-node.node-selected .node-inner')?.textContent,
+      document.title.split(' | ')[0]
+    ].map(value => value?.trim()).filter(Boolean);
+    // The platform truncates long heading text and puts the full filename in
+    // title. Short headings may have no attribute at all. Only accept a full
+    // supported filename; never match an ellipsis by a loose prefix.
+    return candidates.find(value => supported.test(normalizeName(value))) || candidates[0] || '';
+  }
   const save = () => chrome.runtime.sendMessage({ type: 'save', run }).catch(() => {});
   function log(text) {
     if (!run || text === lastStatus) return;
@@ -68,22 +98,29 @@
     const available = [...document.querySelectorAll('.ant-checkbox-wrapper')].find(e => e.textContent.trim() === '仅显示可完成任务');
     if (!all) {
       const entry = document.querySelector('[title="点击查看/刷新待完成学习任务"]');
-      if (!entry) return stop('未识别到登录后的待办入口，请先完成登录。');
+      if (!entry) return waitForPage(now, '未识别到登录后的待办入口');
       if (!homeActionAt) { homeActionAt = now; entry.click(); log('正在打开首页待完成任务…'); }
       else if (now - homeActionAt > 15000) stop('首页待办列表未打开，请刷新后重试。');
       return;
     }
-    if (!all.querySelector('input')?.checked) { all.click(); homeStableSince = 0; return; }
-    if (!available) return stop('未识别到“仅显示可完成任务”筛选，已暂停。');
+    if (!available) return waitForPage(now, '未识别到“仅显示可完成任务”筛选');
+    if (!all.querySelector('input') || !available.querySelector('input')) return waitForPage(now, '任务筛选控件尚未就绪');
+    if (!all.querySelector('input')?.checked) {
+      if (now - arrived > 30000) return stop('“显示全部任务”筛选未生效，已暂停。');
+      all.click(); homeStableSince = 0; return;
+    }
+    if (!available.querySelector('input')?.checked && now - arrived > 30000) return stop('“仅显示可完成任务”筛选未生效，已暂停。');
     if (!available.querySelector('input')?.checked) { available.click(); homeStableSince = 0; return; }
     const cards = [...document.querySelectorAll('.task_card .gutter-row')];
     const eligible = cards.filter(card => card.classList.contains('ta_watch')).map(card => {
       const link = card.querySelector('a.group-resource-link');
       const name = link?.textContent.trim();
       const course = card.querySelector('a.group_link')?.textContent.trim();
-      return { link, name, course, key: JSON.stringify([course, name]) };
-    }).filter(task => task.name && task.course && supported.test(task.name));
+      const target = resourceTarget(link);
+      return { link, name, course, target, key: target ? JSON.stringify([target.course, target.file]) : JSON.stringify([normalizeName(course), normalizeName(name)]) };
+    }).filter(task => task.name && task.course && supported.test(normalizeName(task.name)));
     const signature = JSON.stringify(cards.map(card => card.textContent));
+    if (now - arrived > 60000 && signature !== homeSignature) return stop('待办列表持续变化，无法稳定读取，已暂停，请检查网络后重试。');
     if (signature !== homeSignature || !homeStableSince) {
       homeSignature = signature; homeStableSince = now; return;
     }
@@ -104,7 +141,7 @@
     if (eligible.filter(task => task.key === pending.key).length !== 1) {
       return stop('发现同课程同名待办，无法唯一识别，请进入课程后处理。');
     }
-    run.homeTask = { key: pending.key, name: pending.name, course: pending.course };
+    run.homeTask = { key: pending.key, name: pending.name, course: pending.course, target: pending.target };
     await save();
     log(`打开待办：${pending.course} / ${pending.name}`);
     transition = { url: location.href, at: now };
@@ -112,14 +149,13 @@
   }
   async function next(info) {
     const items = rows();
-    if (!items.length) return stop('未识别到任务列表，请打开课程内容后重新开始。');
-    const heading = document.querySelector('h5.title')?.getAttribute('title');
-    const currentTitle = heading || document.title.split(' | ')[0];
-    const pending = items.find(row => !row.folder && supported.test(row.name) &&
-      !run.visited.includes(`${info.folder}/${row.name}`));
+    if (!items.length) return waitForPage(Date.now(), '未识别到课程任务列表');
+    const currentTitle = resourceName();
+    const pending = items.find(row => !row.folder && supported.test(normalizeName(row.name)) &&
+      !run.visited.some(key => normalizeName(key) === normalizeName(`${info.folder}/${row.name}`)));
     if (pending) {
       log(`打开：${pending.name}`);
-      if (info.file && pending.name === currentTitle) return;
+      if (info.file && normalizeName(pending.name) === normalizeName(currentTitle)) return;
       openRow(pending, false);
       return;
     }
@@ -173,10 +209,18 @@
       const text = document.body.innerText;
       if (/验证码|人机验证|登录已过期|登录失效|重新登录/.test(text)) return stop('需要验证或重新登录，请手动处理。');
       if (run.mode === 'home' && atHome) return await readHome(now);
-      if (run.mode === 'home' && !info.file) return stop('首页待办未打开到具体资源，已暂停，请检查页面。');
+      if (run.mode === 'home' && !info.file) return waitForPage(now, '首页待办尚未打开到具体资源');
       if (!info.file) return await next(info);
-      const name = document.querySelector('h5.title')?.getAttribute('title') || document.title.split(' | ')[0];
-      if (run.mode === 'home' && name !== run.homeTask?.name) return stop('当前资源与选中的首页待办不一致，已暂停。');
+      const name = resourceName();
+      const target = run.homeTask?.target;
+      if (run.mode === 'home' && target && (target.course !== info.course || target.file !== info.file)) {
+        return stop(`资源地址与选中待办不一致，已暂停。预期课程/资源：${target.course}/${target.file}；实际：${info.course}/${info.file}`);
+      }
+      if (run.mode === 'home' && normalizeName(name) !== normalizeName(run.homeTask?.name)) {
+        if (now - arrived < 20000) return log('正在等待目标资源标题加载…');
+        return stop(`当前资源与选中的首页待办不一致，已暂停。待办：${JSON.stringify(run.homeTask?.name)}；页面：${JSON.stringify(name)}`);
+      }
+      if (!supported.test(normalizeName(name))) return waitForPage(now, `无法识别资源标题或类型：${JSON.stringify(name)}`);
       if (finished()) {
         if (!run.completed.includes(location.pathname)) run.completed.push(location.pathname);
         if (!run.visited.includes(`${info.folder}/${name}`)) run.visited.push(`${info.folder}/${name}`);
@@ -193,7 +237,6 @@
         }
         return await next(info);
       }
-      if (!supported.test(name)) return stop('当前资源类型未支持，请从视频或课件开始。');
       const timingHint = document.querySelector('.ant-modal .finish_task_info');
       if (timingHint) {
         const timing = globalThis.xiaoyaTaskTiming(timingHint.textContent);
@@ -223,7 +266,7 @@
         }
         ready = video.ended || (Number.isFinite(video.duration) && video.duration > 0 && video.currentTime >= video.duration - 0.5);
         if (!ready) log(`播放中：${name} · ${run.options.rate} 倍速`);
-      } else if (!/\.(mp4|webm|m4v|mov)$/i.test(name)) {
+      } else if (!/\.(mp4|webm|m4v|mov)$/i.test(normalizeName(name))) {
         if (!taskTiming) {
           if (timingProbeAt && now - timingProbeAt > 15000) {
             return stop('平台未返回可识别的课件时长要求，已暂停，请手动查看任务条件。');
@@ -236,7 +279,7 @@
           if (!ready) log(`阅读等待：${name} · 平台要求 ${taskTiming.requiredSeconds} 秒`);
         }
       } else {
-        log('等待播放器加载…');
+        return waitForPage(now, '播放器尚未加载');
       }
       if (taskTiming && now < taskTiming.due) return;
       const maxWait = Math.max(1800000,
